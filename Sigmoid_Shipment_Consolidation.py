@@ -780,7 +780,30 @@ with tab1:
     with col1:
         shipment_window_range = st.slider("Shipment Window", 0, 30, (2, 7))
 
-    
+    with col2:
+        utilization_threshold_range = st.slider("Utilization Threshold", 25, 95, (60, 80), step=5)
+
+    with col3:
+        with st.expander("Iteration Breakdown", expanded=False):
+            # Calculate the values dynamically
+            total_days = (end_date - start_date).days + 1
+            grouped = df.groupby(['PROD TYPE', group_field])
+            total_groups = len(grouped)
+            utilization_thresholds = range(utilization_threshold_range[0], utilization_threshold_range[1] + 1, 5)
+            shipment_windows = range(shipment_window_range[0], shipment_window_range[1] + 1)
+        
+            # Display the breakdown
+            st.write(f"Total days to check consolidation: {total_days}")
+            st.write(f"({start_date.date()} to {end_date.date()})")
+            st.write(f"Total groups (PROD TYPE, {group_field}): {total_groups}")
+            st.write(f"Utilization thresholds: {', '.join(map(str, utilization_thresholds))}")
+            st.write(f"Shipment windows: {', '.join(map(str, shipment_windows))}")
+            
+            # Calculate total iterations
+            total_iterations = len(shipment_windows) * len(utilization_thresholds) * total_groups * total_days
+            total_calculations = len(shipment_windows) * len(utilization_thresholds)
+            st.write(f"\nTotal iterations: {total_iterations:,} (Total Calculations: {total_calculations:,})")    
+        
 
     if st.button("Run Simulation"):
         start_time = time.time()
@@ -793,11 +816,11 @@ with tab1:
             
             # Generate all combinations of parameters
             shipment_windows = range(shipment_window_range[0], shipment_window_range[1] + 1)
-            utilization_threshold = 95
+            utilization_thresholds = range(utilization_threshold_range[0], utilization_threshold_range[1] + 1, 5)
             
             total_groups = len(grouped)
             total_days = len(date_range)
-            total_iterations = len(shipment_windows) * total_groups * total_days
+            total_iterations = len(shipment_windows) * len(utilization_thresholds) * total_groups * total_days
     
             # Initialize variables to store best results
             best_metrics = None
@@ -812,53 +835,54 @@ with tab1:
             
             # Run simulation for each combination
             for shipment_window in shipment_windows:
+                for utilization_threshold in utilization_thresholds:
+                    high_priority_limit =0
+                    all_consolidated_shipments = []
                 
-                high_priority_limit =0
-                all_consolidated_shipments = []
-            
-                for (prod_type, group), group_df in grouped:
-                    consolidated_shipments, _ = consolidate_shipments(
-                        group_df, high_priority_limit, utilization_threshold, 
-                        shipment_window, date_range, lambda: None, total_shipment_capacity
-                    )
-                    all_consolidated_shipments.extend(consolidated_shipments)
+                    for (prod_type, group), group_df in grouped:
+                        consolidated_shipments, _ = consolidate_shipments(
+                            group_df, high_priority_limit, utilization_threshold, 
+                            shipment_window, date_range, lambda: None, total_shipment_capacity
+                        )
+                        all_consolidated_shipments.extend(consolidated_shipments)
+                        
+                        iteration_counter += total_days
+                        progress_percentage = int((iteration_counter / total_iterations) * 100)
+                        progress_bar(progress_percentage)
+                
+                    # Calculate metrics for this combination
+                    metrics = calculate_metrics(all_consolidated_shipments, df)
                     
-                    iteration_counter += total_days
-                    progress_percentage = int((iteration_counter / total_iterations) * 100)
-                    progress_bar(progress_percentage)
-            
-                # Calculate metrics for this combination
-                metrics = calculate_metrics(all_consolidated_shipments, df)
+                    # Analyze consolidation distribution
+                    distribution, distribution_percentage = analyze_consolidation_distribution(all_consolidated_shipments, df)
+                    
+                    result = {
+                        'Shipment Window': shipment_window,
+                        'Utilization Threshold': utilization_threshold,
+                        'Total Orders': metrics['Total Orders'],
+                        'Total Shipments': metrics['Total Shipments'],
+                        'Total Shipment Cost': round(metrics['Total Shipment Cost'], 1),
+                        'Total Baseline Cost': round(metrics['Total Baseline Cost'], 1),
+                        'Cost Savings': metrics['Cost Savings'],
+                        'Percent Savings': round(metrics['Percent Savings'], 1),
+                        'Average Utilization': round(metrics['Average Utilization'], 1),
+                        'CO2 Emission': round(metrics['CO2 Emission'], 1)
+                    }
+                    
+                    # Add columns for days relative to shipped date
+                    for i in range(shipment_window + 1):
+                        column_name = f'orders%_shipping_{i}day_early'
+                        result[column_name] = distribution_percentage.get(i, 0)
+                    
+                    all_results.append(result)
                 
-                # Analyze consolidation distribution
-                distribution, distribution_percentage = analyze_consolidation_distribution(all_consolidated_shipments, df)
+                    # Update best results if current combination is better
+                    if best_metrics is None or metrics['Cost Savings'] > best_metrics['Cost Savings']:
+                        best_metrics = metrics
+                        best_consolidated_shipments = all_consolidated_shipments
+                        best_params = (shipment_window, high_priority_limit, utilization_threshold)
                 
-                result = {
-                    'Shipment Window': shipment_window,
-                    'Total Orders': metrics['Total Orders'],
-                    'Total Shipments': metrics['Total Shipments'],
-                    'Total Shipment Cost': round(metrics['Total Shipment Cost'], 1),
-                    'Total Baseline Cost': round(metrics['Total Baseline Cost'], 1),
-                    'Cost Savings': metrics['Cost Savings'],
-                    'Percent Savings': round(metrics['Percent Savings'], 1),
-                    'Average Utilization': round(metrics['Average Utilization'], 1),
-                    'CO2 Emission': round(metrics['CO2 Emission'], 1)
-                }
                 
-                # Add columns for days relative to shipped date
-                for i in range(shipment_window + 1):
-                    column_name = f'orders%_shipping_{i}day_early'
-                    result[column_name] = distribution_percentage.get(i, 0)
-                
-                all_results.append(result)
-            
-                # Update best results if current combination is better
-                if best_metrics is None or metrics['Cost Savings'] > best_metrics['Cost Savings']:
-                    best_metrics = metrics
-                    best_consolidated_shipments = all_consolidated_shipments
-                    best_params = (shipment_window, high_priority_limit, utilization_threshold)
-            
-            
             
             end_time = time.time()
             time_taken = end_time - start_time
@@ -868,7 +892,7 @@ with tab1:
                 
             # Display best results
             st.markdown("<h2 style='font-size:26px;'>Best Simulation Results</h2>", unsafe_allow_html=True)
-            st.write(f"Best Parameter: Shipment Window = {best_params[0]}")
+            st.write(f"Best Parameters: Shipment Window = {best_params[0]}, Utilization Threshold = {best_params[2]}%")
             
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             with col1:
@@ -896,11 +920,53 @@ with tab1:
             results_df = pd.DataFrame(all_results)
             
             
-            # Preprocess the data to keep only the row with max Cost Savings for each Shipment Window
-            optimal_results = results_df.loc[results_df.groupby(['Shipment Window'])['Cost Savings'].idxmax()]
+            # Preprocess the data to keep only the row with max Cost Savings for each Shipment Window and Utilization Threshold
+            optimal_results = results_df.loc[results_df.groupby(['Shipment Window', 'Utilization Threshold'])['Cost Savings'].idxmax()]
             
             # Create ColumnDataSource
             source = ColumnDataSource(optimal_results)
+            
+            # Create color mapper for Cost Savings (green for high savings, red for low savings)
+            color_mapper = linear_cmap(field_name='Cost Savings', palette=RdYlGn11[::-1], 
+                                       low=optimal_results['Cost Savings'].min(), high=optimal_results['Cost Savings'].max())
+            
+            st.markdown("<h2 style='font-size:24px;'>Optimal Simulation Results: Shipment Window vs Utilization Threshold</h2>", unsafe_allow_html=True)
+
+            # Create the figure
+            p = figure(x_axis_label='Utilization Threshold (%)',
+                       y_axis_label='Shipment Window',
+                       width=800, height=600)
+            
+            # Add the scatter plot
+            scatter = p.scatter('Utilization Threshold', 'Shipment Window', source=source,
+                                size=10, color=color_mapper, alpha=0.8)
+            
+            # Add color bar
+            color_bar = ColorBar(color_mapper=color_mapper['transform'], width=8, location=(0,0),
+                                 title="Cost Savings (£)")
+            p.add_layout(color_bar, 'right')
+            
+            # Add hover tool
+            hover = HoverTool(tooltips=[
+                ('Shipment Window', '@{Shipment Window}'),
+                ('Utilization Threshold', '@{Utilization Threshold}%'),
+                ('Total Shipment Cost', '£@{Total Shipment Cost}{,.1f}'),
+                ('Cost Savings', '£@{Cost Savings}{,.1f}'),
+                ('Percent Savings', '@{Percent Savings}{,.1f}%'),
+                ('Total Shipments', '@{Total Shipments}'),
+                ('Average Utilization', '@{Average Utilization}{,.1f}%'),
+                ('CO2 Emission', '@{CO2 Emission}{,.1f}'),
+                ('Orders Shipping 0 Day Early', '@{orders%_shipping_0day_early}{,.1f}%'),
+            ])
+            p.add_tools(hover)
+            
+            # Add labels for Percent Savings
+            labels = p.text('Utilization Threshold', 'Shipment Window', text='Percent Savings',
+                            x_offset=5, y_offset=5, source=source, text_font_size='8pt')
+            
+            # Display the plot in Streamlit
+            st.bokeh_chart(p, use_container_width=True)
+
 
             
             # Display the Shipment Window Comparison chart
@@ -986,7 +1052,7 @@ with tab1:
             
             
             # Display table with all results
-            results_df = results_df.sort_values(by=['Percent Savings', 'Shipment Window'], ascending=[False, True]).reset_index(drop=True).set_index('Shipment Window')
+            results_df = results_df.sort_values(by=['Percent Savings', 'Shipment Window', 'Utilization Threshold'], ascending=[False, True, True]).reset_index(drop=True).set_index('Shipment Window')
             st.markdown("<h2 style='font-size:24px;'>All Simulation Results</h2>", unsafe_allow_html=True)
 
             
@@ -1023,7 +1089,24 @@ with tab2:
     with col1:
         calc_shipment_window = st.slider("Shipment Window", min_value=0, max_value=30, value=4)
     
-    calc_utilization_threshold = 95
+    with col2:
+        calc_utilization_threshold = st.slider("Utilization Threshold", min_value=25, max_value=95, value=70, step=5)
+    
+    with col3:
+        with st.expander("Iteration Breakdown", expanded=False):
+
+            # Calculate the values dynamically
+            total_days = (end_date - start_date).days + 1
+            grouped = df.groupby(['PROD TYPE', group_field])
+            total_groups = len(grouped)
+            total_iterations = total_days * total_groups
+        
+            # Display the breakdown
+            st.write(f"Total days to check consolidation: {total_days}")
+            st.write(f"({start_date.date()} to {end_date.date()})")
+            st.write(f"Total groups (PROD TYPE, {group_field}): {total_groups}")
+            st.write(f"Total iterations: {total_iterations:,}")
+    
     
     if st.button("Calculate"):
         start_time = time.time()
