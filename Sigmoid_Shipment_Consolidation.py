@@ -55,7 +55,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<p class="big-font">Shipment Optimization & Planning Dashboard</p>', unsafe_allow_html=True)
+# st.markdown('<p class="big-font">Shipment Optimization & Planning Dashboard</p>', unsafe_allow_html=True)
 
 
 # Load data and rate cards
@@ -70,7 +70,8 @@ def load_data():
 df, rate_card_ambient, rate_card_ambcontrol = load_data()
 
 # Sidebar
-st.sidebar.header("Parameters")
+# st.sidebar.header("Parameters")
+st.sidebar.header("Origin Shipment Consolidation")
 
 # Add slider for total shipment capacity
 total_shipment_capacity = st.sidebar.slider("Total Shipment Capacity", 26, 52, 46)
