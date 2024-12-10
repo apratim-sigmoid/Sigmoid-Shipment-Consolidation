@@ -22,7 +22,7 @@ from bokeh.transform import linear_cmap
 
 
 # Set page config
-st.set_page_config(page_title="Shipment Optimization & Planning Dashboard", layout="wide")
+st.set_page_config(page_title="Origin Shipment Consolidation", layout="wide")
 
 
 st.markdown("""
